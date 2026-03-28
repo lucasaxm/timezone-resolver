@@ -1,19 +1,23 @@
-# Timezone Resolution from Country + State — Analysis Report
+# Timezone Resolution from Country + State + Phone — Analysis Report
 
 ## Problem Statement
 
-Given a country code and an optional state/province code, resolve the IANA timezone. The solution must be:
+Given a country code, an optional state/province code, and an optional phone number, resolve the [IANA timezone](https://www.iana.org/time-zones). The solution must be:
 
 - International (not US-only)
-- Best-effort: if state is unavailable, fall back to the country's primary timezone
+- Best-effort with fallback chain: state → phone → country (varies by country, see below)
 - Simple, lightweight, and ideally zero-maintenance
 - Java 8 compatible
 
 ## Approaches Considered
 
-### 1. GeoNames Data Files (`cities15000.txt`)
+### 1. GeoNames Data Files ([`cities15000.txt`](https://download.geonames.org/export/dump/cities15000.zip))
 
-**How it works:** Download the GeoNames cities file (~7.5MB), parse it at startup, and build in-memory maps keyed by country and country+state. For each region, the timezone of the most populous city is used as the representative timezone.
+**How it works:** Download the [GeoNames cities file](https://download.geonames.org/export/dump/) (~7.5MB), parse it at startup, and build in-memory maps keyed by country and country+state. For each region, the timezone of the most populous city is used as the representative timezone.
+
+- Data file: [`cities15000.zip`](https://download.geonames.org/export/dump/cities15000.zip)
+- File format documentation: [`readme.txt`](https://download.geonames.org/export/dump/readme.txt)
+- License: [Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/)
 
 | Pros | Cons |
 |---|---|
@@ -25,55 +29,13 @@ Given a country code and an optional state/province code, resolve the IANA timez
 
 ---
 
-### 2. GeoNames Data Files with Zip Code Support
-
-**How it works:** Extends approach 1 by adding per-country postal code files (e.g. US.txt at 619KB, CN.txt at 41KB, CA.txt at 37KB). Each postal code has lat/lng coordinates, which are matched to the nearest city using a grid-based spatial index to resolve edge cases within states (e.g. Indiana split-timezone counties, Arizona Navajo Nation DST).
-
-| Pros | Cons |
-|---|---|
-| Highest accuracy for within-state edge cases | More data files to manage |
-| Grid spatial index keeps lookups fast | Heavier memory footprint |
-| Critical for US accuracy (IN, AZ, OR, ND edge cases) | allCountries.zip is 398MB (must use per-country files) |
-
-**Tested edge cases that resolved correctly:**
-
-| Zip | Location | Result |
-|---|---|---|
-| US 46360 | Michigan City, IN | `America/Chicago` (Central) |
-| US 46204 | Indianapolis, IN | `America/Indiana/Indianapolis` (Eastern) |
-| US 86515 | Window Rock, AZ (Navajo) | `America/Denver` (observes DST) |
-| US 85001 | Phoenix, AZ | `America/Phoenix` (no DST) |
-| US 97910 | Jordan Valley, OR | `America/Boise` (Mountain) |
-| US 97201 | Portland, OR | `America/Los_Angeles` (Pacific) |
-| CN 830000 | Urumqi | `Asia/Urumqi` |
-| CA S4P | Regina, SK | `America/Regina` (no DST) |
-| CA A1B | St. John's, NL | `America/St_Johns` (UTC-3:30) |
-
-**Verdict:** Most accurate, but adds complexity. Eliminated because zip-level precision was deemed unnecessary for the use case, and state-level fallback is sufficient.
-
----
-
-### 3. ICU4J Library (`com.ibm.icu:icu4j`)
-
-**How it works:** IBM's Unicode library includes `TimeZone.getAvailableIDs(country)` which returns all IANA timezone IDs for a given country code. Ships its own timezone database.
-
-| Pros | Cons |
-|---|---|
-| Well-maintained by IBM | ~14MB jar — very heavy for just timezone resolution |
-| Ships its own tzdata | Only supports country-level, no state resolution |
-| Programmatic access | Overkill dependency for this use case |
-
-**Verdict:** Eliminated. Too heavy, and doesn't solve the state-level problem.
-
----
-
-### 4. Google Time Zone API
+### 2. [Google Time Zone API](https://developers.google.com/maps/documentation/timezone/overview)
 
 **Endpoints:**
-- Geocoding: `https://maps.googleapis.com/maps/api/geocode/json?address={country+state}&key={API_KEY}`
-- Timezone: `https://maps.googleapis.com/maps/api/timezone/json?location={lat,lng}&timestamp={unix}&key={API_KEY}`
+- [Geocoding API](https://developers.google.com/maps/documentation/geocoding/overview): `https://maps.googleapis.com/maps/api/geocode/json?address={country+state}&key={API_KEY}`
+- [Timezone API](https://developers.google.com/maps/documentation/timezone/requests-timezone): `https://maps.googleapis.com/maps/api/timezone/json?location={lat,lng}&timestamp={unix}&key={API_KEY}`
 
-**Cost estimate for 100k lookups:**
+**Cost estimate for 100k lookups** (see [Google Maps pricing](https://developers.google.com/maps/billing-and-pricing/pricing)):
 - Geocoding API: $5.00 per 1,000 requests → **$500 for 100k**
 - Timezone API: $5.00 per 1,000 requests → **$500 for 100k**
 - **Total: ~$1,000 for 100k lookups** (two API calls per resolution)
@@ -90,13 +52,13 @@ Given a country code and an optional state/province code, resolve the IANA timez
 
 ---
 
-### 5. GeoNames Web API
+### 3. [GeoNames Web API](https://www.geonames.org/export/web-services.html)
 
 **Endpoint:**
-- `http://api.geonames.org/searchJSON?country={CC}&adminCode1={state}&maxRows=1&username={user}`
+- [`searchJSON`](https://www.geonames.org/export/geonames-search.html): `http://api.geonames.org/searchJSON?country={CC}&adminCode1={state}&maxRows=1&username={user}`
 - Returns timezone in the response object
 
-**Cost estimate for 100k lookups:**
+**Cost estimate for 100k lookups** (see [GeoNames account types](https://www.geonames.org/export/)):
 - Free tier: 20,000 requests/day, 1,000/hour
 - Premium: starts at ~$100/year for higher limits
 
@@ -112,35 +74,35 @@ Given a country code and an optional state/province code, resolve the IANA timez
 
 ---
 
-### 6. TimeZoneDB API (`timezonedb.com`)
+### 4. [TimeZoneDB API](https://timezonedb.com/api)
 
 **Endpoint:**
 - `http://api.timezonedb.com/v2.1/get-time-zone?key={KEY}&format=json&by=zone&zone={IANA_ID}`
-- Only supports lookup by IANA zone ID or lat/lng — **not by country+state**
+- Only supports lookup by [IANA zone ID](https://www.iana.org/time-zones) or lat/lng — **not by country+state**
 
 **Verdict:** Eliminated. Doesn't support country+state input. Would require geocoding first, adding the same two-step problem as Google's API.
 
 ---
 
-### 7. WorldTimeAPI / Abstract API
+### 5. [WorldTimeAPI](http://worldtimeapi.org/) / [Abstract API](https://www.abstractapi.com/api/timezone-api)
 
-- WorldTimeAPI: `worldtimeapi.org/api/timezone/{IANA_ID}` — only by IANA zone ID, not country+state
-- Abstract API: `abstractapi.com/api/timezone` — by lat/lng, requires geocoding
+- WorldTimeAPI: `worldtimeapi.org/api/timezone/{IANA_ID}` — only by IANA zone ID, not country+state. **Service has been shut down.**
+- Abstract API: `abstractapi.com/api/timezone` — by lat/lng, requires geocoding. Standard plan caps at 60k requests/month ($99/month), not enough for 100k. See [pricing](https://www.abstractapi.com/api/timezone-api#pricing).
 
 **Verdict:** Both eliminated. Same fundamental limitation — no country+state input, would need geocoding.
 
 ---
 
-### 8. Hardcoded Static Map (Chosen Solution)
+### 6. Hardcoded Static Map + [libphonenumber](https://github.com/google/libphonenumber) (Chosen Solution)
 
-**How it works:** Extract all country→timezone and state→timezone mappings from GeoNames `cities15000.txt` once, then hardcode them as a Java `HashMap` in a static initializer. The class has zero dependencies, zero I/O, and resolves timezones via pure in-memory lookup.
+**How it works:** Country and state→timezone mappings are hardcoded from GeoNames [`cities15000.txt`](https://download.geonames.org/export/dump/cities15000.zip). When country/state lookup fails, Google's [libphonenumber](https://github.com/google/libphonenumber) ([`geocoder` module](https://github.com/google/libphonenumber/tree/master/java/geocoder)) resolves the phone number's area code to an IANA timezone as a fallback.
 
 | Pros | Cons |
 |---|---|
-| Zero dependencies (only `java.util.*`) | State codes use GeoNames admin1 format (may need mapping) |
-| Zero I/O, zero network calls | Doesn't handle within-state edge cases (AZ Navajo, IN counties) |
-| Instant resolution (HashMap lookup) | Would need a code change if a state switches timezone ID (extremely rare) |
-| Java 8 compatible | |
+| Zero I/O, zero network calls | Limited to US/CA state-level; other multi-tz countries fall back to country |
+| Instant resolution (HashMap + in-memory phone lookup) | Doesn't handle within-state edge cases (AZ Navajo, IN counties) |
+| Phone fallback covers cases where country/state is missing | Would need a code change if a state switches timezone ID (extremely rare) |
+| Java 8 compatible | Single dependency: [`com.googlecode.libphonenumber:geocoder`](https://mvnrepository.com/artifact/com.googlecode.libphonenumber/geocoder) |
 | No API keys, no billing, no rate limits | |
 | 100k lookups = microseconds, $0 cost | |
 
@@ -148,68 +110,163 @@ Given a country code and an optional state/province code, resolve the IANA timez
 
 ## Solution Summary
 
-### What the map covers
+### Resolution logic
 
-| Level | Entries | Source |
+```
+For US and Canada:
+  1. State → if valid US/CA state code, return timezone
+  2. Phone → if valid phone number, resolve via libphonenumber area code mapping
+  3. Country → return primary timezone (US: New York, CA: Toronto)
+
+For all other countries:
+  1. Country → if valid country code, return timezone
+  2. Phone → if valid phone number, resolve via libphonenumber area code mapping
+```
+
+"Invalid" inputs (unknown country code, unknown state code, malformed phone number) are treated the same as null — the resolver falls through to the next level.
+
+### What the static map covers
+
+| Level | Entries | Description |
 |---|---|---|
-| Country → timezone | 244 | Most populous city per country from `cities15000.txt` |
-| State → timezone | 566 | Most populous city per state, only for 24 multi-timezone countries |
+| Country → timezone | 244 | Most populous city per country from [`cities15000.txt`](https://download.geonames.org/export/dump/cities15000.zip) |
+| State → timezone (US) | 51 | Two-letter state codes (CA, NY, TX, etc.) |
+| State → timezone (Canada) | 13 | Standard two-letter abbreviations (AB, BC, ON, etc.) |
 
-### Multi-timezone countries (24 total, 566 state entries)
+### About the 244 country entries
 
-| Country | Zones | Country | Zones |
-|---|---|---|---|
-| AR (Argentina) | 12 | MN (Mongolia) | 2 |
-| AU (Australia) | 8 | MX (Mexico) | 12 |
-| BR (Brazil) | 15 | MY (Malaysia) | 2 |
-| CA (Canada) | 12 | PG (Papua New Guinea) | 2 |
-| CD (DR Congo) | 2 | PS (Palestine) | 3 |
-| CL (Chile) | 3 | PT (Portugal) | 3 |
-| CN (China) | 3 | RU (Russia) | 23 |
-| CY (Cyprus) | 2 | SO (Somalia) | 2 |
-| ES (Spain) | 3 | UA (Ukraine) | 2 |
-| GE (Georgia) | 2 | US (United States) | 14 |
-| ID (Indonesia) | 5 | UZ (Uzbekistan) | 3 |
-| KZ (Kazakhstan) | 7 | VN (Vietnam) | 2 |
+The country map uses [ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2) codes, which include not only 193 UN member states but also ~50 territories and dependencies. Each has its own distinct timezone and a valid ISO code:
+
+| Category | Count | Examples |
+|---|---|---|
+| UN member states | 193 | US, BR, JP, DE, etc. |
+| Observer states | 2 | VA (Vatican), PS (Palestine) |
+| Territories & dependencies | ~49 | PR (Puerto Rico), GU (Guam), HK (Hong Kong), GF (French Guiana), etc. |
+| **Total** | **244** | |
+
+These are kept intentionally — many territories have their own timezone (e.g., `GU` → `Pacific/Guam`, `HK` → `Asia/Hong_Kong`). If your data uses these codes, you get the correct timezone. If not, they're just unused entries with negligible cost.
+
+### State-level support
+
+State-level entries are limited to the US and Canada since they are the primary use case. Both use standard **two-letter abbreviations** (US: `CA`, `NY`, `TX`; Canada: `ON`, `BC`, `SK`).
+
+**Data sources for state→timezone mapping:**
+
+| Data | Source |
+|---|---|
+| US state codes | GeoNames [`cities15000.txt`](https://download.geonames.org/export/dump/cities15000.zip) — already uses two-letter [USPS abbreviations](https://pe.usps.com/text/pub28/28apb.htm) as admin1 codes |
+| US state→timezone | GeoNames [`cities15000.txt`](https://download.geonames.org/export/dump/cities15000.zip) — timezone of the most populous city per state |
+| Canada province codes | Cross-referenced GeoNames [`admin1CodesASCII.txt`](https://download.geonames.org/export/dump/admin1CodesASCII.txt) (numeric codes: `CA.01`=Alberta, `CA.02`=British Columbia, etc.) with [ISO 3166-2:CA](https://en.wikipedia.org/wiki/ISO_3166-2:CA) standard abbreviations (`AB`, `BC`, etc.) |
+| Canada province→timezone | GeoNames [`cities15000.txt`](https://download.geonames.org/export/dump/cities15000.zip) — timezone of the most populous city per province. Nunavut (`NU`) was added manually as it has no city with 15k+ population in the dataset |
+
+22 other countries span multiple timezones (AR, AU, BR, CD, CL, CN, CY, ES, GE, ID, KZ, MN, MX, MY, PG, PS, PT, RU, SO, UA, UZ, VN) but will fall back to the country's primary timezone (most populous city). State-level entries for these countries can be added to the map if needed in the future.
+
+### Phone number fallback
+
+When country/state lookup fails (or isn't available), the resolver uses Google's [libphonenumber](https://github.com/google/libphonenumber) ([`geocoder` module](https://github.com/google/libphonenumber/tree/master/java/geocoder)) to extract the timezone from the phone number's area code.
+
+| Detail | Value |
+|---|---|
+| Dependency | [`com.googlecode.libphonenumber:geocoder:3.8`](https://mvnrepository.com/artifact/com.googlecode.libphonenumber/geocoder/3.8) (transitively includes [`libphonenumber:9.0.8`](https://mvnrepository.com/artifact/com.googlecode.libphonenumber/libphonenumber/9.0.8) and [`prefixmapper:3.8`](https://mvnrepository.com/artifact/com.googlecode.libphonenumber/prefixmapper/3.8)) |
+| Input format | [E.164](https://en.wikipedia.org/wiki/E.164) or international format (e.g., `+12125551234`, `+5511999999999`) |
+| Resolution | Area-code-level for US/CA; country-level for most other countries |
+| When it helps | Phone is always available but country/state may be null or invalid |
+| Failure mode | Malformed numbers or unknown prefixes return `Optional.empty()`, falling through gracefully |
+| Key class | [`PhoneNumberToTimeZonesMapper`](https://www.javadoc.io/doc/com.googlecode.libphonenumber/geocoder/latest/com/google/i18n/phonenumbers/PhoneNumberToTimeZonesMapper.html) |
+
+libphonenumber ships its own mapping data (baked into the jar), updated with each library release. No external API calls or data files needed.
+
+### How DST and offset changes work (JVM `tzdata`)
+
+The hardcoded map stores **[IANA timezone identifiers](https://www.iana.org/time-zones)** (e.g., `America/New_York`), not offsets or DST rules. The actual rules live in the **[IANA Time Zone Database](https://www.iana.org/time-zones)** (`tzdata`) bundled inside the JVM (see [Oracle's tzdata documentation](https://www.oracle.com/java/technologies/javase/tzdata-versions.html)).
+
+When you call `TimeZone.getTimeZone("America/New_York").getOffset(timestamp)`, the JVM consults its `tzdata` to determine the correct offset — including whether DST is active at that moment. This database is updated ~3-4 times per year via JDK patch releases (see [tzdata release history](https://data.iana.org/time-zones/releases/)).
+
+**Example — Turkey 2016:** Turkey abolished DST in September 2016, permanently staying at UTC+3.
+- Before JVM update: `Europe/Istanbul` still returned UTC+2 in winter. **Wrong.**
+- After JVM update: `Europe/Istanbul` returns UTC+3 always. **Correct.**
+
+The timezone ID `Europe/Istanbul` didn't change. Our map entry `TR → Europe/Istanbul` didn't change. Only the JVM's internal rules changed.
 
 ### Maintenance model
 
 | Concern | Who handles it | Action required |
 |---|---|---|
-| DST rule changes (country abolishes/adopts DST) | JVM `tzdata` updates | Keep JDK updated (already done for security) |
-| DST transition date changes | JVM `tzdata` updates | Keep JDK updated |
-| UTC offset changes for a timezone | JVM `tzdata` updates | Keep JDK updated |
+| DST rule changes (country abolishes/adopts DST) | JVM [`tzdata`](https://www.oracle.com/java/technologies/javase/tzdata-versions.html) updates | Keep JDK updated (already done for security) |
+| DST transition date changes | JVM [`tzdata`](https://www.oracle.com/java/technologies/javase/tzdata-versions.html) updates | Keep JDK updated |
+| UTC offset changes for a timezone | JVM [`tzdata`](https://www.oracle.com/java/technologies/javase/tzdata-versions.html) updates | Keep JDK updated |
+| Phone area code → timezone mapping changes | [libphonenumber](https://github.com/google/libphonenumber) updates | Bump library version |
 | State switches to a different IANA timezone ID | Our hardcoded map | Change the entry (happens ~once per decade globally) |
 | New country appears | Our hardcoded map | Add one entry |
 
-The hardcoded map stores **IANA timezone identifiers** (e.g., `America/New_York`), not offsets or DST rules. The JVM's built-in `TimeZone` class resolves the identifier to the correct offset and DST state at runtime, using its bundled `tzdata` database. As long as the JDK is kept updated, DST changes are handled automatically without any map changes.
+**Estimated effort: near zero.** Keep your JDK and libphonenumber dependency updated, and the map itself is effectively permanent.
 
 ### API
 
 ```java
-// State known → state-level resolution
-Optional<TimeZone> tz = TimezoneResolver.resolve("US", "CA");
-// → America/Los_Angeles
+// US with state → state-level resolution
+TimezoneResolver.resolve("US", "CA", "+12125551234");
+// → America/Los_Angeles (state wins, phone ignored)
 
-// State unknown → country-level fallback
-Optional<TimeZone> tz = TimezoneResolver.resolve("BR", null);
-// → America/Sao_Paulo
+// US with invalid state → phone fallback
+TimezoneResolver.resolve("US", "NOPE", "+12125551234");
+// → America/New_York (phone area code 212 = NYC)
 
-// Unknown country → empty
-Optional<TimeZone> tz = TimezoneResolver.resolve("XX", null);
+// US with no state, no phone → country fallback
+TimezoneResolver.resolve("US", null, null);
+// → America/New_York (most populous US city)
+
+// Non-US country → country-level resolution
+TimezoneResolver.resolve("JP", null, null);
+// → Asia/Tokyo
+
+// Invalid country → phone fallback
+TimezoneResolver.resolve("XX", null, "+5511999999999");
+// → America/Sao_Paulo (phone = São Paulo area code)
+
+// Nothing works → empty
+TimezoneResolver.resolve("XX", null, "not-a-number");
 // → Optional.empty()
-
-// Unknown state → country fallback
-Optional<TimeZone> tz = TimezoneResolver.resolve("US", "NOPE");
-// → America/New_York
 ```
 
-### File
+### Files
 
-Single self-contained class: `TimezoneResolver.java` (902 lines, ~810 of which are map entries).
+| File | Description |
+|---|---|
+| `TimezoneResolver.java` | Single class with hardcoded maps + phone fallback (~450 lines, ~310 are map entries) |
+| `build.gradle` | Gradle build with [`geocoder`](https://mvnrepository.com/artifact/com.googlecode.libphonenumber/geocoder) dependency |
 
 ### Known Limitations
 
-1. **Within-state timezone splits** (e.g., Indiana counties, Arizona Navajo Nation, eastern Oregon) are not resolved — the dominant timezone per state is used. Zip-level precision was evaluated and is available as an enhancement if needed.
-2. **State codes follow GeoNames admin1 conventions.** US states use two-letter codes (`CA`, `NY`), but other countries use numeric codes (`BR: 27`, `CA: 08`). The mapping from human-readable names to admin1 codes is available at `https://download.geonames.org/export/dump/admin1CodesASCII.txt`.
+1. **Within-state timezone splits** (e.g., Indiana counties, Arizona Navajo Nation, eastern Oregon) are not resolved — the dominant timezone per state is used.
+2. **State codes use standard two-letter abbreviations** for both US ([USPS](https://pe.usps.com/text/pub28/28apb.htm): `CA`, `NY`) and Canada ([ISO 3166-2:CA](https://en.wikipedia.org/wiki/ISO_3166-2:CA): `ON`, `BC`). If you need to support other multi-timezone countries in the future, add entries using whatever code convention your data uses.
 3. **Overseas territories** may have their own country code (e.g., `GF` for French Guiana instead of `FR`), which is handled correctly since they appear as separate entries in the country map.
+4. **Non-US/CA multi-timezone countries** (22 countries including RU, AU, BR, MX, ID) fall back to the country's primary timezone when a state code is provided. This can be expanded by adding entries to the state map.
+5. **Phone number resolution** is area-code-level for US/CA but country-level for most other countries. A Brazilian phone number will resolve to `America/Sao_Paulo` regardless of whether it's from Manaus or São Paulo.
+
+## References
+
+| Resource | URL |
+|---|---|
+| IANA Time Zone Database | https://www.iana.org/time-zones |
+| IANA tzdata releases | https://data.iana.org/time-zones/releases/ |
+| Oracle JDK tzdata versions | https://www.oracle.com/java/technologies/javase/tzdata-versions.html |
+| GeoNames data dump | https://download.geonames.org/export/dump/ |
+| GeoNames `cities15000.txt` | https://download.geonames.org/export/dump/cities15000.zip |
+| GeoNames `admin1CodesASCII.txt` | https://download.geonames.org/export/dump/admin1CodesASCII.txt |
+| GeoNames file format docs | https://download.geonames.org/export/dump/readme.txt |
+| GeoNames Web API docs | https://www.geonames.org/export/web-services.html |
+| GeoNames `searchJSON` endpoint | https://www.geonames.org/export/geonames-search.html |
+| ISO 3166-1 alpha-2 (country codes) | https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2 |
+| ISO 3166-2:CA (Canada provinces) | https://en.wikipedia.org/wiki/ISO_3166-2:CA |
+| USPS state abbreviations | https://pe.usps.com/text/pub28/28apb.htm |
+| E.164 phone number format | https://en.wikipedia.org/wiki/E.164 |
+| Google libphonenumber (GitHub) | https://github.com/google/libphonenumber |
+| libphonenumber geocoder module | https://github.com/google/libphonenumber/tree/master/java/geocoder |
+| `PhoneNumberToTimeZonesMapper` Javadoc | https://www.javadoc.io/doc/com.googlecode.libphonenumber/geocoder/latest/com/google/i18n/phonenumbers/PhoneNumberToTimeZonesMapper.html |
+| geocoder on Maven Central | https://mvnrepository.com/artifact/com.googlecode.libphonenumber/geocoder |
+| Google Geocoding API | https://developers.google.com/maps/documentation/geocoding/overview |
+| Google Timezone API | https://developers.google.com/maps/documentation/timezone/overview |
+| Google Maps pricing | https://developers.google.com/maps/billing-and-pricing/pricing |
+| TimeZoneDB API | https://timezonedb.com/api |
+| Abstract API Timezone | https://www.abstractapi.com/api/timezone-api |

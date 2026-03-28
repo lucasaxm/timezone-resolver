@@ -1,7 +1,13 @@
 package com.example.timezone;
 
+import com.google.i18n.phonenumbers.NumberParseException;
+import com.google.i18n.phonenumbers.PhoneNumberToTimeZonesMapper;
+import com.google.i18n.phonenumbers.PhoneNumberUtil;
+import com.google.i18n.phonenumbers.Phonenumber.PhoneNumber;
+
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TimeZone;
@@ -11,15 +17,22 @@ import java.util.TimeZone;
  * state+country → country.
  * <p>
  * Data sourced from GeoNames cities15000.txt. For each region, the timezone
- * of the most populous city is used. State-level entries are only included for
- * the 24 countries that span multiple timezones.
+ * of the most populous city is used as the representative timezone.
+ * <p>
+ * The country map covers 244 entries (193 sovereign nations + ~50 territories
+ * and dependencies using ISO 3166-1 alpha-2 codes). State-level entries are
+ * included for US (51 entries) and Canada (13 entries), both using standard
+ * two-letter abbreviations (e.g. CA, NY, ON, BC).
+ * All other countries fall back to country-level.
+ * <p>
+ * For US and Canada, the resolution order is: state → phone number → country.
+ * For all other countries: country → phone number.
+ * Phone number resolution uses Google's libphonenumber (geocoder module),
+ * which maps area codes to IANA timezones.
  * <p>
  * Timezone IDs are IANA identifiers (e.g. "America/New_York"). The actual
  * offset and DST rules are resolved at runtime by the JVM's built-in tzdata.
  * Keep your JDK updated to get rule changes (e.g. a country abolishing DST).
- * <p>
- * State codes follow GeoNames admin1 conventions: US uses two-letter codes
- * (CA, NY), but other countries may use numeric codes (BR: 27, CA: 08).
  *
  * @see <a href="https://download.geonames.org/export/dump/admin1CodesASCII.txt">GeoNames admin1 codes</a>
  */
@@ -276,495 +289,22 @@ public final class TimezoneResolver {
         countries.put("ZW", TimeZone.getTimeZone("Africa/Harare"));
         COUNTRY_MAP = Collections.unmodifiableMap(countries);
 
-        Map<String, TimeZone> states = new HashMap<>(566);
-        // AR
-        states.put("AR:01", TimeZone.getTimeZone("America/Argentina/Buenos_Aires"));
-        states.put("AR:02", TimeZone.getTimeZone("America/Argentina/Catamarca"));
-        states.put("AR:03", TimeZone.getTimeZone("America/Argentina/Cordoba"));
-        states.put("AR:04", TimeZone.getTimeZone("America/Argentina/Catamarca"));
-        states.put("AR:05", TimeZone.getTimeZone("America/Argentina/Cordoba"));
-        states.put("AR:06", TimeZone.getTimeZone("America/Argentina/Cordoba"));
-        states.put("AR:07", TimeZone.getTimeZone("America/Argentina/Buenos_Aires"));
-        states.put("AR:08", TimeZone.getTimeZone("America/Argentina/Cordoba"));
-        states.put("AR:09", TimeZone.getTimeZone("America/Argentina/Cordoba"));
-        states.put("AR:10", TimeZone.getTimeZone("America/Argentina/Jujuy"));
-        states.put("AR:11", TimeZone.getTimeZone("America/Argentina/Salta"));
-        states.put("AR:12", TimeZone.getTimeZone("America/Argentina/La_Rioja"));
-        states.put("AR:13", TimeZone.getTimeZone("America/Argentina/Mendoza"));
-        states.put("AR:14", TimeZone.getTimeZone("America/Argentina/Cordoba"));
-        states.put("AR:15", TimeZone.getTimeZone("America/Argentina/Salta"));
-        states.put("AR:16", TimeZone.getTimeZone("America/Argentina/Salta"));
-        states.put("AR:17", TimeZone.getTimeZone("America/Argentina/Salta"));
-        states.put("AR:18", TimeZone.getTimeZone("America/Argentina/San_Juan"));
-        states.put("AR:19", TimeZone.getTimeZone("America/Argentina/San_Luis"));
-        states.put("AR:20", TimeZone.getTimeZone("America/Argentina/Rio_Gallegos"));
-        states.put("AR:21", TimeZone.getTimeZone("America/Argentina/Cordoba"));
-        states.put("AR:22", TimeZone.getTimeZone("America/Argentina/Cordoba"));
-        states.put("AR:23", TimeZone.getTimeZone("America/Argentina/Ushuaia"));
-        states.put("AR:24", TimeZone.getTimeZone("America/Argentina/Tucuman"));
-        // AU
-        states.put("AU:01", TimeZone.getTimeZone("Australia/Sydney"));
-        states.put("AU:02", TimeZone.getTimeZone("Australia/Sydney"));
-        states.put("AU:03", TimeZone.getTimeZone("Australia/Darwin"));
-        states.put("AU:04", TimeZone.getTimeZone("Australia/Brisbane"));
-        states.put("AU:05", TimeZone.getTimeZone("Australia/Adelaide"));
-        states.put("AU:06", TimeZone.getTimeZone("Australia/Hobart"));
-        states.put("AU:07", TimeZone.getTimeZone("Australia/Melbourne"));
-        states.put("AU:08", TimeZone.getTimeZone("Australia/Perth"));
-        // BR
-        states.put("BR:01", TimeZone.getTimeZone("America/Rio_Branco"));
-        states.put("BR:02", TimeZone.getTimeZone("America/Maceio"));
-        states.put("BR:03", TimeZone.getTimeZone("America/Belem"));
-        states.put("BR:04", TimeZone.getTimeZone("America/Manaus"));
-        states.put("BR:05", TimeZone.getTimeZone("America/Bahia"));
-        states.put("BR:06", TimeZone.getTimeZone("America/Fortaleza"));
-        states.put("BR:07", TimeZone.getTimeZone("America/Sao_Paulo"));
-        states.put("BR:08", TimeZone.getTimeZone("America/Sao_Paulo"));
-        states.put("BR:11", TimeZone.getTimeZone("America/Campo_Grande"));
-        states.put("BR:13", TimeZone.getTimeZone("America/Fortaleza"));
-        states.put("BR:14", TimeZone.getTimeZone("America/Cuiaba"));
-        states.put("BR:15", TimeZone.getTimeZone("America/Sao_Paulo"));
-        states.put("BR:16", TimeZone.getTimeZone("America/Belem"));
-        states.put("BR:17", TimeZone.getTimeZone("America/Fortaleza"));
-        states.put("BR:18", TimeZone.getTimeZone("America/Sao_Paulo"));
-        states.put("BR:20", TimeZone.getTimeZone("America/Fortaleza"));
-        states.put("BR:21", TimeZone.getTimeZone("America/Sao_Paulo"));
-        states.put("BR:22", TimeZone.getTimeZone("America/Fortaleza"));
-        states.put("BR:23", TimeZone.getTimeZone("America/Sao_Paulo"));
-        states.put("BR:24", TimeZone.getTimeZone("America/Porto_Velho"));
-        states.put("BR:25", TimeZone.getTimeZone("America/Boa_Vista"));
-        states.put("BR:26", TimeZone.getTimeZone("America/Sao_Paulo"));
-        states.put("BR:27", TimeZone.getTimeZone("America/Sao_Paulo"));
-        states.put("BR:28", TimeZone.getTimeZone("America/Maceio"));
-        states.put("BR:29", TimeZone.getTimeZone("America/Sao_Paulo"));
-        states.put("BR:30", TimeZone.getTimeZone("America/Recife"));
-        states.put("BR:31", TimeZone.getTimeZone("America/Araguaina"));
-        // CA
-        states.put("CA:01", TimeZone.getTimeZone("America/Edmonton"));
-        states.put("CA:02", TimeZone.getTimeZone("America/Vancouver"));
-        states.put("CA:03", TimeZone.getTimeZone("America/Winnipeg"));
-        states.put("CA:04", TimeZone.getTimeZone("America/Moncton"));
-        states.put("CA:05", TimeZone.getTimeZone("America/St_Johns"));
-        states.put("CA:07", TimeZone.getTimeZone("America/Halifax"));
-        states.put("CA:08", TimeZone.getTimeZone("America/Toronto"));
-        states.put("CA:09", TimeZone.getTimeZone("America/Halifax"));
-        states.put("CA:10", TimeZone.getTimeZone("America/Toronto"));
-        states.put("CA:11", TimeZone.getTimeZone("America/Regina"));
-        states.put("CA:12", TimeZone.getTimeZone("America/Whitehorse"));
-        states.put("CA:13", TimeZone.getTimeZone("America/Edmonton"));
-        // CD
-        states.put("CD:02", TimeZone.getTimeZone("Africa/Kinshasa"));
-        states.put("CD:04", TimeZone.getTimeZone("Africa/Lubumbashi"));
-        states.put("CD:06", TimeZone.getTimeZone("Africa/Kinshasa"));
-        states.put("CD:08", TimeZone.getTimeZone("Africa/Kinshasa"));
-        states.put("CD:10", TimeZone.getTimeZone("Africa/Lubumbashi"));
-        states.put("CD:11", TimeZone.getTimeZone("Africa/Lubumbashi"));
-        states.put("CD:12", TimeZone.getTimeZone("Africa/Lubumbashi"));
-        states.put("CD:13", TimeZone.getTimeZone("Africa/Lubumbashi"));
-        states.put("CD:14", TimeZone.getTimeZone("Africa/Lubumbashi"));
-        states.put("CD:15", TimeZone.getTimeZone("Africa/Lubumbashi"));
-        states.put("CD:16", TimeZone.getTimeZone("Africa/Lubumbashi"));
-        states.put("CD:17", TimeZone.getTimeZone("Africa/Lubumbashi"));
-        states.put("CD:18", TimeZone.getTimeZone("Africa/Lubumbashi"));
-        states.put("CD:19", TimeZone.getTimeZone("Africa/Kinshasa"));
-        states.put("CD:20", TimeZone.getTimeZone("Africa/Kinshasa"));
-        states.put("CD:21", TimeZone.getTimeZone("Africa/Lubumbashi"));
-        states.put("CD:22", TimeZone.getTimeZone("Africa/Lubumbashi"));
-        states.put("CD:23", TimeZone.getTimeZone("Africa/Lubumbashi"));
-        states.put("CD:24", TimeZone.getTimeZone("Africa/Kinshasa"));
-        states.put("CD:25", TimeZone.getTimeZone("Africa/Kinshasa"));
-        states.put("CD:26", TimeZone.getTimeZone("Africa/Kinshasa"));
-        states.put("CD:27", TimeZone.getTimeZone("Africa/Lubumbashi"));
-        states.put("CD:28", TimeZone.getTimeZone("Africa/Kinshasa"));
-        states.put("CD:29", TimeZone.getTimeZone("Africa/Lubumbashi"));
-        states.put("CD:30", TimeZone.getTimeZone("Africa/Lubumbashi"));
-        states.put("CD:31", TimeZone.getTimeZone("Africa/Kinshasa"));
-        // CL
-        states.put("CL:01", TimeZone.getTimeZone("America/Santiago"));
-        states.put("CL:02", TimeZone.getTimeZone("America/Coyhaique"));
-        states.put("CL:03", TimeZone.getTimeZone("America/Santiago"));
-        states.put("CL:04", TimeZone.getTimeZone("America/Santiago"));
-        states.put("CL:05", TimeZone.getTimeZone("America/Santiago"));
-        states.put("CL:06", TimeZone.getTimeZone("America/Santiago"));
-        states.put("CL:07", TimeZone.getTimeZone("America/Santiago"));
-        states.put("CL:08", TimeZone.getTimeZone("America/Santiago"));
-        states.put("CL:10", TimeZone.getTimeZone("America/Punta_Arenas"));
-        states.put("CL:11", TimeZone.getTimeZone("America/Santiago"));
-        states.put("CL:12", TimeZone.getTimeZone("America/Santiago"));
-        states.put("CL:14", TimeZone.getTimeZone("America/Santiago"));
-        states.put("CL:15", TimeZone.getTimeZone("America/Santiago"));
-        states.put("CL:16", TimeZone.getTimeZone("America/Santiago"));
-        states.put("CL:17", TimeZone.getTimeZone("America/Santiago"));
-        states.put("CL:18", TimeZone.getTimeZone("America/Santiago"));
-        // CN
-        states.put("CN:01", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:02", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:03", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:04", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:05", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:06", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:07", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:08", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:09", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:10", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:11", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:12", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:13", TimeZone.getTimeZone("Asia/Urumqi"));
-        states.put("CN:14", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:15", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:16", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:18", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:19", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:20", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:21", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:22", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:23", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:24", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:25", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:26", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:28", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:29", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:30", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:31", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:32", TimeZone.getTimeZone("Asia/Shanghai"));
-        states.put("CN:33", TimeZone.getTimeZone("Asia/Shanghai"));
-        // CY
-        states.put("CY:01", TimeZone.getTimeZone("Asia/Famagusta"));
-        states.put("CY:02", TimeZone.getTimeZone("Asia/Famagusta"));
-        states.put("CY:03", TimeZone.getTimeZone("Asia/Nicosia"));
-        states.put("CY:04", TimeZone.getTimeZone("Asia/Nicosia"));
-        states.put("CY:05", TimeZone.getTimeZone("Asia/Nicosia"));
-        states.put("CY:06", TimeZone.getTimeZone("Asia/Nicosia"));
-        // ES
-        states.put("ES:07", TimeZone.getTimeZone("Europe/Madrid"));
-        states.put("ES:27", TimeZone.getTimeZone("Europe/Madrid"));
-        states.put("ES:29", TimeZone.getTimeZone("Europe/Madrid"));
-        states.put("ES:31", TimeZone.getTimeZone("Europe/Madrid"));
-        states.put("ES:32", TimeZone.getTimeZone("Europe/Madrid"));
-        states.put("ES:34", TimeZone.getTimeZone("Europe/Madrid"));
-        states.put("ES:39", TimeZone.getTimeZone("Europe/Madrid"));
-        states.put("ES:51", TimeZone.getTimeZone("Europe/Madrid"));
-        states.put("ES:52", TimeZone.getTimeZone("Europe/Madrid"));
-        states.put("ES:53", TimeZone.getTimeZone("Atlantic/Canary"));
-        states.put("ES:54", TimeZone.getTimeZone("Europe/Madrid"));
-        states.put("ES:55", TimeZone.getTimeZone("Europe/Madrid"));
-        states.put("ES:56", TimeZone.getTimeZone("Europe/Madrid"));
-        states.put("ES:57", TimeZone.getTimeZone("Europe/Madrid"));
-        states.put("ES:58", TimeZone.getTimeZone("Europe/Madrid"));
-        states.put("ES:59", TimeZone.getTimeZone("Europe/Madrid"));
-        states.put("ES:60", TimeZone.getTimeZone("Europe/Madrid"));
-        states.put("ES:CE", TimeZone.getTimeZone("Europe/Madrid"));
-        states.put("ES:ML", TimeZone.getTimeZone("Africa/Ceuta"));
-        // GE
-        states.put("GE:02", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("GE:04", TimeZone.getTimeZone("Asia/Tbilisi"));
-        states.put("GE:51", TimeZone.getTimeZone("Asia/Tbilisi"));
-        states.put("GE:66", TimeZone.getTimeZone("Asia/Tbilisi"));
-        states.put("GE:67", TimeZone.getTimeZone("Asia/Tbilisi"));
-        states.put("GE:68", TimeZone.getTimeZone("Asia/Tbilisi"));
-        states.put("GE:71", TimeZone.getTimeZone("Asia/Tbilisi"));
-        states.put("GE:72", TimeZone.getTimeZone("Asia/Tbilisi"));
-        states.put("GE:73", TimeZone.getTimeZone("Asia/Tbilisi"));
-        // ID
-        states.put("ID:01", TimeZone.getTimeZone("Asia/Jakarta"));
-        states.put("ID:02", TimeZone.getTimeZone("Asia/Makassar"));
-        states.put("ID:03", TimeZone.getTimeZone("Asia/Jakarta"));
-        states.put("ID:04", TimeZone.getTimeZone("Asia/Jakarta"));
-        states.put("ID:05", TimeZone.getTimeZone("Asia/Jakarta"));
-        states.put("ID:07", TimeZone.getTimeZone("Asia/Jakarta"));
-        states.put("ID:08", TimeZone.getTimeZone("Asia/Jakarta"));
-        states.put("ID:10", TimeZone.getTimeZone("Asia/Jakarta"));
-        states.put("ID:11", TimeZone.getTimeZone("Asia/Pontianak"));
-        states.put("ID:12", TimeZone.getTimeZone("Asia/Makassar"));
-        states.put("ID:13", TimeZone.getTimeZone("Asia/Pontianak"));
-        states.put("ID:14", TimeZone.getTimeZone("Asia/Makassar"));
-        states.put("ID:15", TimeZone.getTimeZone("Asia/Jakarta"));
-        states.put("ID:17", TimeZone.getTimeZone("Asia/Makassar"));
-        states.put("ID:18", TimeZone.getTimeZone("Asia/Makassar"));
-        states.put("ID:21", TimeZone.getTimeZone("Asia/Makassar"));
-        states.put("ID:22", TimeZone.getTimeZone("Asia/Makassar"));
-        states.put("ID:24", TimeZone.getTimeZone("Asia/Jakarta"));
-        states.put("ID:26", TimeZone.getTimeZone("Asia/Jakarta"));
-        states.put("ID:28", TimeZone.getTimeZone("Asia/Jayapura"));
-        states.put("ID:29", TimeZone.getTimeZone("Asia/Jayapura"));
-        states.put("ID:30", TimeZone.getTimeZone("Asia/Jakarta"));
-        states.put("ID:31", TimeZone.getTimeZone("Asia/Makassar"));
-        states.put("ID:32", TimeZone.getTimeZone("Asia/Jakarta"));
-        states.put("ID:33", TimeZone.getTimeZone("Asia/Jakarta"));
-        states.put("ID:34", TimeZone.getTimeZone("Asia/Makassar"));
-        states.put("ID:35", TimeZone.getTimeZone("Asia/Jakarta"));
-        states.put("ID:36", TimeZone.getTimeZone("Asia/Jayapura"));
-        states.put("ID:37", TimeZone.getTimeZone("Asia/Jakarta"));
-        states.put("ID:38", TimeZone.getTimeZone("Asia/Makassar"));
-        states.put("ID:39", TimeZone.getTimeZone("Asia/Jayapura"));
-        states.put("ID:40", TimeZone.getTimeZone("Asia/Jakarta"));
-        states.put("ID:41", TimeZone.getTimeZone("Asia/Makassar"));
-        states.put("ID:42", TimeZone.getTimeZone("Asia/Makassar"));
-        states.put("ID:PD", TimeZone.getTimeZone("Asia/Jayapura"));
-        states.put("ID:PE", TimeZone.getTimeZone("Asia/Jayapura"));
-        states.put("ID:PS", TimeZone.getTimeZone("Asia/Jayapura"));
-        states.put("ID:PT", TimeZone.getTimeZone("Asia/Jayapura"));
-        // KZ
-        states.put("KZ:01", TimeZone.getTimeZone("Asia/Almaty"));
-        states.put("KZ:02", TimeZone.getTimeZone("Asia/Almaty"));
-        states.put("KZ:03", TimeZone.getTimeZone("Asia/Almaty"));
-        states.put("KZ:04", TimeZone.getTimeZone("Asia/Aqtobe"));
-        states.put("KZ:05", TimeZone.getTimeZone("Asia/Almaty"));
-        states.put("KZ:06", TimeZone.getTimeZone("Asia/Atyrau"));
-        states.put("KZ:07", TimeZone.getTimeZone("Asia/Oral"));
-        states.put("KZ:08", TimeZone.getTimeZone("Asia/Qostanay"));
-        states.put("KZ:09", TimeZone.getTimeZone("Asia/Aqtau"));
-        states.put("KZ:10", TimeZone.getTimeZone("Asia/Almaty"));
-        states.put("KZ:11", TimeZone.getTimeZone("Asia/Almaty"));
-        states.put("KZ:12", TimeZone.getTimeZone("Asia/Almaty"));
-        states.put("KZ:12510143", TimeZone.getTimeZone("Asia/Almaty"));
-        states.put("KZ:12510144", TimeZone.getTimeZone("Asia/Almaty"));
-        states.put("KZ:12510145", TimeZone.getTimeZone("Asia/Almaty"));
-        states.put("KZ:13", TimeZone.getTimeZone("Asia/Qostanay"));
-        states.put("KZ:14", TimeZone.getTimeZone("Asia/Qyzylorda"));
-        states.put("KZ:15", TimeZone.getTimeZone("Asia/Almaty"));
-        states.put("KZ:1537272", TimeZone.getTimeZone("Asia/Almaty"));
-        states.put("KZ:16", TimeZone.getTimeZone("Asia/Almaty"));
-        states.put("KZ:17", TimeZone.getTimeZone("Asia/Almaty"));
-        // MN
-        states.put("MN:01", TimeZone.getTimeZone("Asia/Ulaanbaatar"));
-        states.put("MN:02", TimeZone.getTimeZone("Asia/Ulaanbaatar"));
-        states.put("MN:03", TimeZone.getTimeZone("Asia/Hovd"));
-        states.put("MN:06", TimeZone.getTimeZone("Asia/Ulaanbaatar"));
-        states.put("MN:07", TimeZone.getTimeZone("Asia/Ulaanbaatar"));
-        states.put("MN:09", TimeZone.getTimeZone("Asia/Hovd"));
-        states.put("MN:10", TimeZone.getTimeZone("Asia/Hovd"));
-        states.put("MN:11", TimeZone.getTimeZone("Asia/Ulaanbaatar"));
-        states.put("MN:12", TimeZone.getTimeZone("Asia/Hovd"));
-        states.put("MN:13", TimeZone.getTimeZone("Asia/Ulaanbaatar"));
-        states.put("MN:14", TimeZone.getTimeZone("Asia/Ulaanbaatar"));
-        states.put("MN:15", TimeZone.getTimeZone("Asia/Ulaanbaatar"));
-        states.put("MN:16", TimeZone.getTimeZone("Asia/Ulaanbaatar"));
-        states.put("MN:17", TimeZone.getTimeZone("Asia/Ulaanbaatar"));
-        states.put("MN:18", TimeZone.getTimeZone("Asia/Ulaanbaatar"));
-        states.put("MN:19", TimeZone.getTimeZone("Asia/Hovd"));
-        states.put("MN:20", TimeZone.getTimeZone("Asia/Ulaanbaatar"));
-        states.put("MN:21", TimeZone.getTimeZone("Asia/Ulaanbaatar"));
-        states.put("MN:23", TimeZone.getTimeZone("Asia/Ulaanbaatar"));
-        states.put("MN:25", TimeZone.getTimeZone("Asia/Ulaanbaatar"));
-        // MX
-        states.put("MX:01", TimeZone.getTimeZone("America/Mexico_City"));
-        states.put("MX:02", TimeZone.getTimeZone("America/Tijuana"));
-        states.put("MX:03", TimeZone.getTimeZone("America/Mazatlan"));
-        states.put("MX:04", TimeZone.getTimeZone("America/Merida"));
-        states.put("MX:05", TimeZone.getTimeZone("America/Merida"));
-        states.put("MX:06", TimeZone.getTimeZone("America/Ciudad_Juarez"));
-        states.put("MX:07", TimeZone.getTimeZone("America/Monterrey"));
-        states.put("MX:08", TimeZone.getTimeZone("America/Mexico_City"));
-        states.put("MX:09", TimeZone.getTimeZone("America/Mexico_City"));
-        states.put("MX:10", TimeZone.getTimeZone("America/Monterrey"));
-        states.put("MX:11", TimeZone.getTimeZone("America/Mexico_City"));
-        states.put("MX:12", TimeZone.getTimeZone("America/Mexico_City"));
-        states.put("MX:13", TimeZone.getTimeZone("America/Mexico_City"));
-        states.put("MX:14", TimeZone.getTimeZone("America/Mexico_City"));
-        states.put("MX:15", TimeZone.getTimeZone("America/Mexico_City"));
-        states.put("MX:16", TimeZone.getTimeZone("America/Mexico_City"));
-        states.put("MX:17", TimeZone.getTimeZone("America/Mexico_City"));
-        states.put("MX:18", TimeZone.getTimeZone("America/Mazatlan"));
-        states.put("MX:19", TimeZone.getTimeZone("America/Monterrey"));
-        states.put("MX:20", TimeZone.getTimeZone("America/Mexico_City"));
-        states.put("MX:21", TimeZone.getTimeZone("America/Mexico_City"));
-        states.put("MX:22", TimeZone.getTimeZone("America/Mexico_City"));
-        states.put("MX:23", TimeZone.getTimeZone("America/Cancun"));
-        states.put("MX:24", TimeZone.getTimeZone("America/Monterrey"));
-        states.put("MX:25", TimeZone.getTimeZone("America/Mazatlan"));
-        states.put("MX:26", TimeZone.getTimeZone("America/Hermosillo"));
-        states.put("MX:27", TimeZone.getTimeZone("America/Merida"));
-        states.put("MX:28", TimeZone.getTimeZone("America/Matamoros"));
-        states.put("MX:29", TimeZone.getTimeZone("America/Mexico_City"));
-        states.put("MX:30", TimeZone.getTimeZone("America/Mexico_City"));
-        states.put("MX:31", TimeZone.getTimeZone("America/Merida"));
-        states.put("MX:32", TimeZone.getTimeZone("America/Mexico_City"));
-        // MY
-        states.put("MY:01", TimeZone.getTimeZone("Asia/Kuala_Lumpur"));
-        states.put("MY:02", TimeZone.getTimeZone("Asia/Kuala_Lumpur"));
-        states.put("MY:03", TimeZone.getTimeZone("Asia/Kuala_Lumpur"));
-        states.put("MY:04", TimeZone.getTimeZone("Asia/Kuala_Lumpur"));
-        states.put("MY:05", TimeZone.getTimeZone("Asia/Kuala_Lumpur"));
-        states.put("MY:06", TimeZone.getTimeZone("Asia/Kuala_Lumpur"));
-        states.put("MY:07", TimeZone.getTimeZone("Asia/Kuala_Lumpur"));
-        states.put("MY:08", TimeZone.getTimeZone("Asia/Kuala_Lumpur"));
-        states.put("MY:09", TimeZone.getTimeZone("Asia/Kuala_Lumpur"));
-        states.put("MY:11", TimeZone.getTimeZone("Asia/Kuching"));
-        states.put("MY:12", TimeZone.getTimeZone("Asia/Kuala_Lumpur"));
-        states.put("MY:13", TimeZone.getTimeZone("Asia/Kuala_Lumpur"));
-        states.put("MY:14", TimeZone.getTimeZone("Asia/Kuala_Lumpur"));
-        states.put("MY:15", TimeZone.getTimeZone("Asia/Kuala_Lumpur"));
-        states.put("MY:16", TimeZone.getTimeZone("Asia/Kuching"));
-        states.put("MY:17", TimeZone.getTimeZone("Asia/Kuala_Lumpur"));
-        // PG
-        states.put("PG:04", TimeZone.getTimeZone("Pacific/Port_Moresby"));
-        states.put("PG:05", TimeZone.getTimeZone("Pacific/Port_Moresby"));
-        states.put("PG:06", TimeZone.getTimeZone("Pacific/Port_Moresby"));
-        states.put("PG:07", TimeZone.getTimeZone("Pacific/Bougainville"));
-        states.put("PG:09", TimeZone.getTimeZone("Pacific/Port_Moresby"));
-        states.put("PG:10", TimeZone.getTimeZone("Pacific/Port_Moresby"));
-        states.put("PG:11", TimeZone.getTimeZone("Pacific/Port_Moresby"));
-        states.put("PG:12", TimeZone.getTimeZone("Pacific/Port_Moresby"));
-        states.put("PG:14", TimeZone.getTimeZone("Pacific/Port_Moresby"));
-        states.put("PG:16", TimeZone.getTimeZone("Pacific/Port_Moresby"));
-        states.put("PG:17", TimeZone.getTimeZone("Pacific/Port_Moresby"));
-        states.put("PG:20", TimeZone.getTimeZone("Pacific/Port_Moresby"));
-        // PS
-        states.put("PS:GZ", TimeZone.getTimeZone("Asia/Gaza"));
-        states.put("PS:WE", TimeZone.getTimeZone("Asia/Hebron"));
-        // PT
-        states.put("PT:02", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:03", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:04", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:05", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:06", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:07", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:08", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:09", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:10", TimeZone.getTimeZone("Atlantic/Madeira"));
-        states.put("PT:11", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:13", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:14", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:16", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:17", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:18", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:19", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:20", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:21", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:22", TimeZone.getTimeZone("Europe/Lisbon"));
-        states.put("PT:23", TimeZone.getTimeZone("Atlantic/Azores"));
-        // RU
-        states.put("RU:01", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:03", TimeZone.getTimeZone("Asia/Barnaul"));
-        states.put("RU:04", TimeZone.getTimeZone("Asia/Barnaul"));
-        states.put("RU:05", TimeZone.getTimeZone("Asia/Yakutsk"));
-        states.put("RU:06", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:07", TimeZone.getTimeZone("Europe/Astrakhan"));
-        states.put("RU:08", TimeZone.getTimeZone("Asia/Yekaterinburg"));
-        states.put("RU:09", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:10", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:11", TimeZone.getTimeZone("Asia/Irkutsk"));
-        states.put("RU:12", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:13", TimeZone.getTimeZone("Asia/Yekaterinburg"));
-        states.put("RU:15", TimeZone.getTimeZone("Asia/Anadyr"));
-        states.put("RU:16", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:17", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:19", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:20", TimeZone.getTimeZone("Asia/Irkutsk"));
-        states.put("RU:21", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:22", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:23", TimeZone.getTimeZone("Europe/Kaliningrad"));
-        states.put("RU:24", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:25", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:27", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:28", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:29", TimeZone.getTimeZone("Asia/Novokuznetsk"));
-        states.put("RU:30", TimeZone.getTimeZone("Asia/Vladivostok"));
-        states.put("RU:31", TimeZone.getTimeZone("Asia/Krasnoyarsk"));
-        states.put("RU:32", TimeZone.getTimeZone("Asia/Yekaterinburg"));
-        states.put("RU:33", TimeZone.getTimeZone("Europe/Kirov"));
-        states.put("RU:34", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:37", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:38", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:40", TimeZone.getTimeZone("Asia/Yekaterinburg"));
-        states.put("RU:41", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:42", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:43", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:44", TimeZone.getTimeZone("Asia/Magadan"));
-        states.put("RU:45", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:46", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:47", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:48", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:49", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:50", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:51", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:52", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:53", TimeZone.getTimeZone("Asia/Novosibirsk"));
-        states.put("RU:54", TimeZone.getTimeZone("Asia/Omsk"));
-        states.put("RU:55", TimeZone.getTimeZone("Asia/Yekaterinburg"));
-        states.put("RU:56", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:57", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:59", TimeZone.getTimeZone("Asia/Vladivostok"));
-        states.put("RU:60", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:61", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:62", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:63", TimeZone.getTimeZone("Asia/Yakutsk"));
-        states.put("RU:64", TimeZone.getTimeZone("Asia/Sakhalin"));
-        states.put("RU:65", TimeZone.getTimeZone("Europe/Samara"));
-        states.put("RU:66", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:67", TimeZone.getTimeZone("Europe/Saratov"));
-        states.put("RU:68", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:69", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:70", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:71", TimeZone.getTimeZone("Asia/Yekaterinburg"));
-        states.put("RU:72", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:73", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:75", TimeZone.getTimeZone("Asia/Tomsk"));
-        states.put("RU:76", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:77", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:78", TimeZone.getTimeZone("Asia/Yekaterinburg"));
-        states.put("RU:79", TimeZone.getTimeZone("Asia/Krasnoyarsk"));
-        states.put("RU:80", TimeZone.getTimeZone("Europe/Samara"));
-        states.put("RU:81", TimeZone.getTimeZone("Europe/Ulyanovsk"));
-        states.put("RU:83", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:84", TimeZone.getTimeZone("Europe/Volgograd"));
-        states.put("RU:85", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:86", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:87", TimeZone.getTimeZone("Asia/Yekaterinburg"));
-        states.put("RU:88", TimeZone.getTimeZone("Europe/Moscow"));
-        states.put("RU:89", TimeZone.getTimeZone("Asia/Vladivostok"));
-        states.put("RU:90", TimeZone.getTimeZone("Asia/Yekaterinburg"));
-        states.put("RU:91", TimeZone.getTimeZone("Asia/Krasnoyarsk"));
-        states.put("RU:92", TimeZone.getTimeZone("Asia/Kamchatka"));
-        states.put("RU:93", TimeZone.getTimeZone("Asia/Chita"));
-        // SO
-        states.put("SO:02", TimeZone.getTimeZone("Africa/Mogadishu"));
-        states.put("SO:03", TimeZone.getTimeZone("Africa/Mogadishu"));
-        states.put("SO:04", TimeZone.getTimeZone("Africa/Mogadishu"));
-        states.put("SO:05", TimeZone.getTimeZone("Africa/Addis_Ababa"));
-        states.put("SO:06", TimeZone.getTimeZone("Africa/Mogadishu"));
-        states.put("SO:07", TimeZone.getTimeZone("Africa/Mogadishu"));
-        states.put("SO:08", TimeZone.getTimeZone("Africa/Mogadishu"));
-        states.put("SO:09", TimeZone.getTimeZone("Africa/Mogadishu"));
-        states.put("SO:10", TimeZone.getTimeZone("Africa/Mogadishu"));
-        states.put("SO:12", TimeZone.getTimeZone("Africa/Mogadishu"));
-        states.put("SO:13", TimeZone.getTimeZone("Africa/Mogadishu"));
-        states.put("SO:14", TimeZone.getTimeZone("Africa/Mogadishu"));
-        states.put("SO:18", TimeZone.getTimeZone("Africa/Mogadishu"));
-        states.put("SO:19", TimeZone.getTimeZone("Africa/Mogadishu"));
-        states.put("SO:20", TimeZone.getTimeZone("Africa/Mogadishu"));
-        states.put("SO:21", TimeZone.getTimeZone("Africa/Mogadishu"));
-        states.put("SO:22", TimeZone.getTimeZone("Africa/Mogadishu"));
-        // UA
-        states.put("UA:01", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:02", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:03", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:04", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:05", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:06", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:07", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:08", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:09", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:10", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:11", TimeZone.getTimeZone("Europe/Simferopol"));
-        states.put("UA:12", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:13", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:14", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:15", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:16", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:17", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:18", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:19", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:20", TimeZone.getTimeZone("Europe/Simferopol"));
-        states.put("UA:21", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:22", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:23", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:24", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:25", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:26", TimeZone.getTimeZone("Europe/Kyiv"));
-        states.put("UA:27", TimeZone.getTimeZone("Europe/Kyiv"));
-        // US
+        Map<String, TimeZone> states = new HashMap<>(64);
+        // CA (Canada) — standard two-letter province/territory abbreviations
+        states.put("CA:AB", TimeZone.getTimeZone("America/Edmonton"));
+        states.put("CA:BC", TimeZone.getTimeZone("America/Vancouver"));
+        states.put("CA:MB", TimeZone.getTimeZone("America/Winnipeg"));
+        states.put("CA:NB", TimeZone.getTimeZone("America/Moncton"));
+        states.put("CA:NL", TimeZone.getTimeZone("America/St_Johns"));
+        states.put("CA:NS", TimeZone.getTimeZone("America/Halifax"));
+        states.put("CA:NT", TimeZone.getTimeZone("America/Edmonton"));
+        states.put("CA:NU", TimeZone.getTimeZone("America/Winnipeg"));
+        states.put("CA:ON", TimeZone.getTimeZone("America/Toronto"));
+        states.put("CA:PE", TimeZone.getTimeZone("America/Halifax"));
+        states.put("CA:QC", TimeZone.getTimeZone("America/Toronto"));
+        states.put("CA:SK", TimeZone.getTimeZone("America/Regina"));
+        states.put("CA:YT", TimeZone.getTimeZone("America/Whitehorse"));
+        // US (United States)
         states.put("US:AK", TimeZone.getTimeZone("America/Anchorage"));
         states.put("US:AL", TimeZone.getTimeZone("America/Chicago"));
         states.put("US:AR", TimeZone.getTimeZone("America/Chicago"));
@@ -816,59 +356,12 @@ public final class TimezoneResolver {
         states.put("US:WI", TimeZone.getTimeZone("America/Chicago"));
         states.put("US:WV", TimeZone.getTimeZone("America/New_York"));
         states.put("US:WY", TimeZone.getTimeZone("America/Denver"));
-        // UZ
-        states.put("UZ:01", TimeZone.getTimeZone("Asia/Tashkent"));
-        states.put("UZ:02", TimeZone.getTimeZone("Asia/Samarkand"));
-        states.put("UZ:03", TimeZone.getTimeZone("Asia/Tashkent"));
-        states.put("UZ:05", TimeZone.getTimeZone("Asia/Samarkand"));
-        states.put("UZ:06", TimeZone.getTimeZone("Asia/Tashkent"));
-        states.put("UZ:07", TimeZone.getTimeZone("Asia/Samarkand"));
-        states.put("UZ:08", TimeZone.getTimeZone("Asia/Samarkand"));
-        states.put("UZ:09", TimeZone.getTimeZone("Asia/Samarkand"));
-        states.put("UZ:10", TimeZone.getTimeZone("Asia/Samarkand"));
-        states.put("UZ:12", TimeZone.getTimeZone("Asia/Samarkand"));
-        states.put("UZ:13", TimeZone.getTimeZone("Asia/Tashkent"));
-        states.put("UZ:14", TimeZone.getTimeZone("Asia/Tashkent"));
-        states.put("UZ:15", TimeZone.getTimeZone("Asia/Samarkand"));
-        states.put("UZ:16", TimeZone.getTimeZone("Asia/Tashkent"));
-        // VN
-        states.put("VN:00", TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
-        states.put("VN:01", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:04", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:08", TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
-        states.put("VN:11", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:12", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:14", TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
-        states.put("VN:15", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:19", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:20", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:22", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:24", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:25", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:31", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:33", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:37", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:38", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:40", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:42", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:44", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:46", TimeZone.getTimeZone("Asia/Bangkok"));
-        states.put("VN:48", TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
-        states.put("VN:51", TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
-        states.put("VN:52", TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
-        states.put("VN:56", TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
-        states.put("VN:66", TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
-        states.put("VN:68", TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
-        states.put("VN:75", TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
-        states.put("VN:79", TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
-        states.put("VN:80", TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
-        states.put("VN:82", TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
-        states.put("VN:86", TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
-        states.put("VN:91", TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
-        states.put("VN:92", TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
-        states.put("VN:96", TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
         STATE_MAP = Collections.unmodifiableMap(states);
     }
+
+    private static final PhoneNumberUtil PHONE_UTIL = PhoneNumberUtil.getInstance();
+    private static final PhoneNumberToTimeZonesMapper TZ_MAPPER = PhoneNumberToTimeZonesMapper.getInstance();
+    private static final String UNKNOWN_TZ = "Etc/Unknown";
 
     private TimezoneResolver() {
     }
@@ -876,27 +369,80 @@ public final class TimezoneResolver {
     /**
      * Resolves the timezone for the given location with best-effort fallback.
      * <p>
-     * Resolution order: state+country → country → empty.
+     * For US and Canada: state → phone number → country.
+     * For all other countries: country → phone number.
+     * <p>
+     * "Invalid" inputs (unknown country code, unknown state code) are treated
+     * the same as null — the resolver simply falls through to the next level.
      *
-     * @param countryCode ISO 3166-1 alpha-2 country code (required, e.g. "US", "BR", "JP")
-     * @param state       GeoNames admin1 code (nullable, e.g. "CA", "27", "08")
-     * @return the resolved timezone, or empty if the country is unknown
+     * @param countryCode ISO 3166-1 alpha-2 country code (nullable, e.g. "US", "BR", "JP")
+     * @param state       state/province code (nullable, e.g. "CA", "ON")
+     * @param phoneNumber phone number in E.164 or international format (nullable, e.g. "+12125551234")
+     * @return the resolved timezone, or empty if nothing could be resolved
      */
-    public static Optional<TimeZone> resolve(String countryCode, String state) {
-        if (countryCode == null || countryCode.trim().isEmpty()) {
+    public static Optional<TimeZone> resolve(String countryCode, String state, String phoneNumber) {
+        String normalizedCountry = normalize(countryCode);
+        boolean isUsOrCa = "US".equals(normalizedCountry) || "CA".equals(normalizedCountry);
+
+        if (isUsOrCa) {
+            // US/CA: state → phone → country
+            Optional<TimeZone> stateResult = resolveByState(normalizedCountry, state);
+            if (stateResult.isPresent()) {
+                return stateResult;
+            }
+
+            Optional<TimeZone> phoneResult = resolveByPhone(phoneNumber);
+            if (phoneResult.isPresent()) {
+                return phoneResult;
+            }
+
+            return resolveByCountry(normalizedCountry);
+        }
+
+        // Non-US/CA: country → phone
+        Optional<TimeZone> countryResult = resolveByCountry(normalizedCountry);
+        if (countryResult.isPresent()) {
+            return countryResult;
+        }
+
+        return resolveByPhone(phoneNumber);
+    }
+
+    private static Optional<TimeZone> resolveByState(String normalizedCountry, String state) {
+        if (normalizedCountry == null || state == null || state.trim().isEmpty()) {
             return Optional.empty();
         }
+        String stateKey = normalizedCountry + ":" + state.trim().toUpperCase();
+        return Optional.ofNullable(STATE_MAP.get(stateKey));
+    }
 
-        String normalizedCountry = countryCode.trim().toUpperCase();
-
-        if (state != null && !state.trim().isEmpty()) {
-            String stateKey = normalizedCountry + ":" + state.trim().toUpperCase();
-            TimeZone stateResult = STATE_MAP.get(stateKey);
-            if (stateResult != null) {
-                return Optional.of(stateResult);
-            }
+    private static Optional<TimeZone> resolveByCountry(String normalizedCountry) {
+        if (normalizedCountry == null) {
+            return Optional.empty();
         }
-
         return Optional.ofNullable(COUNTRY_MAP.get(normalizedCountry));
+    }
+
+    private static Optional<TimeZone> resolveByPhone(String phoneNumber) {
+        if (phoneNumber == null || phoneNumber.trim().isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            PhoneNumber parsed = PHONE_UTIL.parse(phoneNumber.trim(), null);
+            List<String> timezones = TZ_MAPPER.getTimeZonesForNumber(parsed);
+            if (timezones.isEmpty() || UNKNOWN_TZ.equals(timezones.get(0))) {
+                return Optional.empty();
+            }
+            return Optional.of(TimeZone.getTimeZone(timezones.get(0)));
+        } catch (NumberParseException e) {
+            return Optional.empty();
+        }
+    }
+
+    private static String normalize(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        return value.trim().toUpperCase();
     }
 }
